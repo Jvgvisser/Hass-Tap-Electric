@@ -1,65 +1,48 @@
-import logging
 from homeassistant.components.number import NumberEntity, NumberDeviceClass
 from homeassistant.const import UnitOfElectricCurrent
 from .const import DOMAIN
 
-_LOGGER = logging.getLogger(__name__)
-
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Stel de Tap Electric number entities (sliders) in."""
-    api = hass.data[DOMAIN][entry.entry_id]
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    # De api zit verstopt in de coordinator
+    api = coordinator.hass.data[DOMAIN][entry.entry_id].update_method.__self__.api 
+    # Makkelijker: we halen de api direct uit de coordinator setup
     
-    # Haal alle laders op die onder jouw account vallen
-    chargers = await api.get_chargers()
-    
+    # Omdat we de API ook nodig hebben voor acties, halen we die uit hass.data
+    # Maar voor nu gebruiken we de laders uit de coordinator data
     entities = []
-    for charger in chargers:
-        # We maken voor elke lader een Ampère-slider aan
-        entities.append(TapChargingLimitNumber(api, charger))
-    
-    async_add_entities(entities, update_before_add=True)
+    for charger in coordinator.data.get("chargers", []):
+        entities.append(TapChargingLimit(coordinator, charger))
+    async_add_entities(entities)
 
-class TapChargingLimitNumber(NumberEntity):
-    """Representatie van de laadstroom limiet slider."""
+class TapChargingLimit(NumberEntity):
+    _attr_device_class = NumberDeviceClass.CURRENT
+    _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
+    _attr_native_min_value = 6
+    _attr_native_max_value = 32
+    _attr_native_step = 1
 
-    def __init__(self, api, charger):
-        """Initialiseer de slider."""
-        self._api = api
-        self._charger = charger
-        self._charger_id = charger["id"]
-        
-        # Naamgeving in Home Assistant
-        self._attr_name = f"Laadstroom Limiet {charger.get('name', self._charger_id)}"
-        self._attr_unique_id = f"tap_limit_{self._charger_id}"
-        
-        # Instellingen van de slider
-        self._attr_device_class = NumberDeviceClass.CURRENT
-        self._attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-        self._attr_native_min_value = 6.0
-        self._attr_native_max_value = 32.0  # Je kunt dit aanpassen naar 16.0 als je een kleine aansluiting hebt
-        self._attr_native_step = 1.0
-        
-        # Beginwaarde (wordt later bijgewerkt via de API indien mogelijk)
-        self._attr_native_value = 16.0
-
-    async def async_set_native_value(self, value: float) -> None:
-        """Update de laadstroom op de lader via de Tap API."""
-        _LOGGER.debug("Instellen van laadstroom naar %s Ampère voor %s", value, self._charger_id)
-        
-        success = await self._api.set_charging_limit(self._charger_id, value)
-        
-        if success:
-            self._attr_native_value = value
-            self.async_write_ha_state()
-        else:
-            _LOGGER.error("Fout bij het instellen van de laadstroom limiet voor %s", self._charger_id)
+    def __init__(self, coordinator, charger):
+        self.coordinator = coordinator
+        self.charger_id = charger["id"]
+        self.charger_name = charger.get("name", f"Lader {self.charger_id[-4:]}")
+        self._attr_name = f"{self.charger_name} Limiet"
+        self._attr_unique_id = f"tap_limit_{self.charger_id}"
+        self._attr_native_value = 16
 
     @property
     def device_info(self):
-        """Koppel deze slider aan het lader-apparaat in HA."""
         return {
-            "identifiers": {(DOMAIN, self._charger_id)},
-            "name": self._charger.get('name', "Tap Lader"),
+            "identifiers": {(DOMAIN, self.charger_id)},
+            "name": self.charger_name,
             "manufacturer": "Tap Electric",
-            "model": self._charger.get('model', "OCPP Charger"),
         }
+
+    async def async_set_native_value(self, value):
+        # We hebben de API nodig om te versturen. 
+        # In de __init__.py hebben we de API niet in de coordinator gestopt. 
+        # Laten we dat voor de zekerheid even fixen in __init__.py.
+        api = self.coordinator.hass.data[DOMAIN]["api_instance"]
+        await api.set_charging_limit(self.charger_id, value)
+        self._attr_native_value = value
+        self.async_write_ha_state()
