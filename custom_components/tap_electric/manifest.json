@@ -1,10 +1,11 @@
 {
   "domain": "tap_electric",
   "name": "Tap Electric",
-  "documentation": "https://github.com/jouwgebruikersnaam/ha-tap-electric",
+  "brand": true,
+  "documentation": "https://github.com/Jvgvisser/Hass-Tap-Electric",
   "dependencies": [],
-  "codeowners": ["@jouwgebruikersnaam"],
+  "codeowners": ["@Jvgvisser"],
   "config_flow": true,
   "iot_class": "cloud_polling",
-  "version": "1.0.0"
+  "version": "1.0.1"
 }
