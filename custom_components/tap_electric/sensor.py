@@ -1,5 +1,5 @@
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
-from homeassistant.const import UnitOfEnergy, UnitOfElectricCurrent, UnitOfTime
+from homeassistant.const import UnitOfEnergy, UnitOfElectricCurrent, UnitOfElectricPotential, UnitOfPower
 from .const import DOMAIN
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -10,14 +10,15 @@ async def async_setup_entry(hass, entry, async_add_entities):
         charger_id = charger["id"]
         charger_name = charger.get("name", f"Lader {charger_id[-4:]}")
         
-        # Bestaande sensoren
+        # Basis sensoren
         entities.append(TapStatusSensor(coordinator, charger_id, charger_name))
         entities.append(TapEnergySensor(coordinator, charger_id, charger_name))
         entities.append(TapCostSensor(coordinator, charger_id, charger_name))
         
-        # NIEUWE SENSOREN
-        entities.append(TapCurrentAmpsSensor(coordinator, charger_id, charger_name))
-        entities.append(TapSessionDurationSensor(coordinator, charger_id, charger_name))
+        # Power & Voltage sensoren
+        entities.append(TapPowerSensor(coordinator, charger_id, charger_name))
+        entities.append(TapVoltageSensor(coordinator, charger_id, charger_name))
+        entities.append(TapCurrentSensor(coordinator, charger_id, charger_name))
         
     async_add_entities(entities)
 
@@ -54,6 +55,49 @@ class TapStatusSensor(TapBaseSensor):
             if c["id"] == self.charger_id: return c.get("status")
         return "Unknown"
 
+class TapPowerSensor(TapBaseSensor):
+    """Actueel vermogen in Watt."""
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    @property
+    def name(self): return f"{self.charger_name} Vermogen"
+    @property
+    def unique_id(self): return f"tap_power_{self.charger_id}"
+    @property
+    def native_value(self):
+        for s in self.coordinator.data.get("sessions", []):
+            if s.get("chargerId") == self.charger_id: return s.get("activeImport")
+        return 0
+
+class TapVoltageSensor(TapBaseSensor):
+    """Voltage op de lader."""
+    _attr_device_class = SensorDeviceClass.VOLTAGE
+    _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
+    @property
+    def name(self): return f"{self.charger_name} Voltage"
+    @property
+    def unique_id(self): return f"tap_voltage_{self.charger_id}"
+    @property
+    def native_value(self):
+        for s in self.coordinator.data.get("sessions", []):
+            if s.get("chargerId") == self.charger_id: return s.get("voltage")
+        return 0
+
+class TapCurrentSensor(TapBaseSensor):
+    """Actuele stroomsterkte in Ampère."""
+    _attr_device_class = SensorDeviceClass.CURRENT
+    _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
+    @property
+    def name(self): return f"{self.charger_name} Stroomsterkte"
+    @property
+    def unique_id(self): return f"tap_current_{self.charger_id}"
+    @property
+    def native_value(self):
+        for s in self.coordinator.data.get("sessions", []):
+            if s.get("chargerId") == self.charger_id: return s.get("currentImport")
+        return 0
+
 class TapEnergySensor(TapBaseSensor):
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
@@ -79,36 +123,4 @@ class TapCostSensor(TapBaseSensor):
     def native_value(self):
         for s in self.coordinator.data.get("sessions", []):
             if s.get("chargerId") == self.charger_id: return s.get("amountInclVat")
-        return 0
-
-class TapCurrentAmpsSensor(TapBaseSensor):
-    """Toont met hoeveel Ampère de auto nu echt laadt."""
-    _attr_device_class = SensorDeviceClass.CURRENT
-    _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-    @property
-    def name(self): return f"{self.charger_name} Actuele Stroomsterkte"
-    @property
-    def unique_id(self): return f"tap_amps_{self.charger_id}"
-    @property
-    def native_value(self):
-        for s in self.coordinator.data.get("sessions", []):
-            if s.get("chargerId") == self.charger_id: 
-                # De API geeft vaak de som van fasen of per fase, we pakken de hoofdwaarde
-                return s.get("currentImport", 0)
-        return 0
-
-class TapSessionDurationSensor(TapBaseSensor):
-    """Hoelang de sessie al bezig is."""
-    _attr_device_class = SensorDeviceClass.DURATION
-    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
-    @property
-    def name(self): return f"{self.charger_name} Sessie Duur"
-    @property
-    def unique_id(self): return f"tap_duration_{self.charger_id}"
-    @property
-    def native_value(self):
-        for s in self.coordinator.data.get("sessions", []):
-            if s.get("chargerId") == self.charger_id:
-                # Berekening van minuten (versimpeld)
-                return s.get("durationMinutes", 0)
         return 0
